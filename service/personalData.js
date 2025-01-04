@@ -2,9 +2,10 @@ const { Client } = require('@elastic/elasticsearch');
 
 // Cấu hình Elasticsearch
 const elasticsearchClient = new Client({ node: elasticsearchUrl });
-
+const elasticsearchIndexName = 'personal-data';
 // Hàm truy vấn Elasticsearch
-const getPersonalData = async (uid) => {
+const getPersonalData = async (parsedValue) => {
+    const uid = parsedValue.uid;
     try {
         // Truy vấn Elasticsearch
         const result = await elasticsearchClient.search({
@@ -23,7 +24,7 @@ const getPersonalData = async (uid) => {
         });
 
         // Trích xuất dữ liệu từ kết quả trả về
-        const hits = result.body.hits.hits.map(hit => hit._source);
+        const hits = result.hits.hits.map(hit => hit._source);
 
         // Gửi dữ liệu đến Kafka
         for (const data of hits) {
@@ -36,7 +37,8 @@ const getPersonalData = async (uid) => {
             );
         }
 
-        return hits; // Trả về kết quả cho người gọi
+        parsedValue.result = hits;
+        return parsedValue; // Trả về kết quả cho người gọi
     } catch (error) {
         console.error('Elasticsearch Query Error:', error);
         throw error;

@@ -14,28 +14,36 @@ consumer.on('message', async (message) => {
     console.log(`Nhận message từ topic ${message.topic}:`, message.value);
 
     let result;
-    switch (message.topic) {
-        case inTopics[0]:
-            result = await getPersonalData(message.value);  // Gọi hàm xử lý A
-            break;
-        case inTopics[1]:
-            result = await search(message.value);  // Gọi hàm xử lý B
-            break;
-        default:
-            console.log('Không có hành động cho topic này:', message.topic);
-    }
+    try {
+        let parsedValue = JSON.parse(message.value); // Parse the message value if it's a JSON string
 
-    if (result) {
-        const outputTopic = outTopics[inTopics.indexOf(message.topic)];
-        producer.send([{ topic: outputTopic, messages: result }], (err, res) => {
-            if (err) {
-                console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outputTopic}:`, err);
-            } else {
-                console.log(`Dữ liệu đã được gửi thành công tới ${outputTopic}:`, res);
-            }
-        });
+        switch (message.topic) {
+            case inTopics[0]:
+                if (parsedValue.uid && parsedValue.jobId)
+                    result = await getPersonalData(parsedValue);  // Gọi hàm xử lý A
+                break;
+            case inTopics[1]:
+                if (parsedValue.keywords && parsedValue.from && parsedValue.to && parsedValue.jobId)
+                    result = await search(parsedValue);  // Gọi hàm xử lý B
+                break;
+            default:
+                console.log('Không có hành động cho topic này:', message.topic);
+        }
+
+        if (result) {
+            const outputTopic = outTopics[inTopics.indexOf(message.topic)];
+            producer.send([{ topic: outputTopic, messages: JSON.stringify(result) }], (err, res) => {
+                if (err) {
+                    console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outputTopic}:`, err);
+                } else {
+                    console.log(`Dữ liệu đã được gửi thành công tới ${outputTopic}:`, res);
+                }
+            });
+        }
+    } catch (error) {
+        console.error(`Lỗi xử lý message từ topic ${message.topic}:`, error);
     }
-})
+});
 
 // Lắng nghe lỗi
 consumer.on('error', function (err) {

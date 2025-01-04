@@ -4,7 +4,10 @@ const { Client } = require('@elastic/elasticsearch');
 const elasticsearchClient = new Client({ node: elasticsearchUrl });
 
 // Hàm truy vấn Elasticsearch
-const search = async (keywords, from, to) => {
+const search = async (parsedValue) => {
+    const keywords = parsedValue.keywords;
+    const from = parsedValue.from;
+    const to = parsedValue.to;
     try {
         // Truy vấn Elasticsearch
         const result = await elasticsearchClient.search({
@@ -30,7 +33,7 @@ const search = async (keywords, from, to) => {
         });
 
         // Trích xuất dữ liệu từ kết quả trả về
-        const hits = result.body.hits.hits.map(hit => hit._source);
+        const hits = result.hits.hits.map(hit => hit._source);
 
         // Gửi dữ liệu đến Kafka
         for (const data of hits) {
@@ -43,7 +46,8 @@ const search = async (keywords, from, to) => {
             );
         }
 
-        return hits; // Trả về kết quả cho người gọi
+        parsedValue.result = hits;
+        return parsedValue; // Trả về kết quả cho người gọi
     } catch (error) {
         console.error('Elasticsearch Query Error:', error);
         throw error;
