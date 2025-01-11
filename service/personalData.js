@@ -1,15 +1,18 @@
 const { Client } = require('@elastic/elasticsearch');
+require('dotenv').config();
 
 // Cấu hình Elasticsearch
-const elasticsearchClient = new Client({ node: elasticsearchUrl });
-const elasticsearchIndexName = 'personal-data';
+const elasticsearchClient = new Client({ node: process.env.ES_URL });
+const personalDataIndex = 'personal-data';
+const stockDataIndex = 'crawled-stock-data';
+
 // Hàm truy vấn Elasticsearch
 const getPersonalData = async (parsedValue) => {
     const uid = parsedValue.uid;
     try {
-        // Truy vấn Elasticsearch
+        // Truy vấn dữ liệu từ chỉ mục personal-data
         const result = await elasticsearchClient.search({
-            index: elasticsearchIndexName,
+            index: personalDataIndex,
             body: {
                 query: {
                     match: {
@@ -26,18 +29,44 @@ const getPersonalData = async (parsedValue) => {
         // Trích xuất dữ liệu từ kết quả trả về
         const hits = result.hits.hits.map(hit => hit._source);
 
-        // Gửi dữ liệu đến Kafka
-        for (const data of hits) {
-            producer.send(
-                [{ topic: kafkaTopic, messages: JSON.stringify(data) }],
-                (err, data) => {
-                    if (err) console.error('Kafka Error:', err);
-                    else console.log('Data sent to Kafka:', data);
-                }
-            );
+        // Đếm số lần xuất hiện của mỗi keyword
+        const keywordCount = hits.reduce((acc, item) => {
+            const keyword = item.keyword;
+            if (keyword) {
+                acc[keyword] = (acc[keyword] || 0) + 1;
+            }
+            return acc;
+        }, {});
+
+        // Lấy keyword phổ biến nhất (tần suất cao nhất)
+        const topKeyword = Object.keys(keywordCount)
+            .sort((a, b) => keywordCount[b] - keywordCount[a])[0]; // Lấy keyword đứng đầu
+
+        // Nếu không có keyword, trả về kết quả rỗng
+        if (!topKeyword) {
+            parsedValue.result = [];
+            return parsedValue;
         }
 
-        parsedValue.result = hits;
+        // Truy vấn dữ liệu từ chỉ mục crawled-stock-data với keyword phổ biến nhất
+        const stockDataResult = await elasticsearchClient.search({
+            index: stockDataIndex,
+            body: {
+                query: {
+                    match: {
+                        keywords: topKeyword // Tìm kiếm theo từ khóa phổ biến nhất
+                    }
+                },
+                size: 50 // Giới hạn kết quả trả về là 50
+            }
+        });
+
+        // Trích xuất dữ liệu từ kết quả trả về
+        const stockDataHits = stockDataResult.hits.hits.map(hit => hit._source);
+
+        // Gắn kết quả vào parsedValue
+        parsedValue.result = stockDataHits;
+
         return parsedValue; // Trả về kết quả cho người gọi
     } catch (error) {
         console.error('Elasticsearch Query Error:', error);

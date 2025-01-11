@@ -1,7 +1,9 @@
 const { Client } = require('@elastic/elasticsearch');
+require('dotenv').config();
 
 // Cấu hình Elasticsearch
-const elasticsearchClient = new Client({ node: elasticsearchUrl });
+const elasticsearchClient = new Client({ node: process.env.ES_URL });
+const elasticsearchIndexName = 'crawled-stock-data';
 
 // Hàm truy vấn Elasticsearch
 const search = async (parsedValue) => {

@@ -1,45 +1,101 @@
 const { KafkaClient, Consumer, Producer } = require('kafka-node');
 const { getPersonalData } = require('./service/personalData');
 const { search } = require('./service/search');
+const { saveToES, tokenize } = require('./service/elasticsearchClient');
 
-const kafkaClient = new KafkaClient({ kafkaHost: 'localhost:9092' });
+const kafkaClient = new KafkaClient({ kafkaHost: process.env.KAFKA_HOST });
 const producer = new Producer(kafkaClient);
 
-const inTopics = ['personal-data', 'search'];
-const outTopics = ['personal-data-res', 'search-res'];
+const inTopics = ['personal-data', 'search', 'crawled-data', 'classification'];
+const outTopics = ['api-res', 'query', 'training-data'];
 
 const consumer = new Consumer(kafkaClient, inTopics.map(topic => ({ topic, partition: 0 })), { autoCommit: true });
 
 consumer.on('message', async (message) => {
-    console.log(`Nhận message từ topic ${message.topic}:`, message.value);
-
-    let result;
+    console.log(`Nhận message từ topic ${message.topic}`);
     try {
         let parsedValue = JSON.parse(message.value); // Parse the message value if it's a JSON string
 
         switch (message.topic) {
             case inTopics[0]:
-                if (parsedValue.uid && parsedValue.jobId)
-                    result = await getPersonalData(parsedValue);  // Gọi hàm xử lý A
+                if (parsedValue.uid && parsedValue.jobId) {
+                    const result = await getPersonalData(parsedValue);  // Gọi hàm xử lý A
+                    if (result)
+                        producer.send([{ topic: outTopics[0], messages: JSON.stringify(result) }], (err, res) => {
+                            if (err) {
+                                console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outputTopic}:`, err);
+                            } else {
+                                console.log(`Dữ liệu đã được gửi thành công tới ${outputTopic}:`, res);
+                            }
+                        });
+                }
                 break;
+
             case inTopics[1]:
-                if (parsedValue.keywords && parsedValue.from && parsedValue.to && parsedValue.jobId)
-                    result = await search(parsedValue);  // Gọi hàm xử lý B
+                if (parsedValue.keywords && parsedValue.from && parsedValue.to && parsedValue.jobId) {
+                    const result = await search(parsedValue);  // Gọi hàm xử lý B
+                    if (result)
+                        producer.send([{ topic: outTopics[0], messages: JSON.stringify(result) }], (err, res) => {
+                            if (err) {
+                                console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outputTopic}:`, err);
+                            } else {
+                                console.log(`Dữ liệu đã được gửi thành công tới ${outputTopic}:`, res);
+                            }
+                        });
+                }
                 break;
+
+            case inTopics[2]:
+                if (parsedValue) {
+                    await saveToES([parsedValue], 'crawled-stock-index');
+                    const tokens = tokenize(parsedValue.title + ', ' + parsedValue.keywords + ', ' + parsedValue.description + ', ' + parsedValue.content);
+                    const keywords = parsedValue.keywords.split(', ');
+                    const result = {
+                        tokens: tokens,
+                        keywords: keywords
+                    }
+                    producer.send([{ topic: outTopics[2], messages: JSON.stringify(result) }], (err, res) => {
+                        if (err) {
+                            console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outputTopic}:`, err);
+                        } else {
+                            console.log(`Dữ liệu đã được gửi thành công tới ${outputTopic}:`, res);
+                        }
+                    });
+                }
+                break;
+
+            case inTopics[3]:
+                if (parsedValue) {
+                    // Thêm timestamp
+                    parsedValue.timeStamp = Date.now();
+
+                    // Lưu parsedValue vào Elasticsearch
+                    await saveToES([parsedValue], 'stock-logs-index');
+
+                    // Tokenize keywords
+                    const tokens = await tokenize(parsedValue.keywords);
+
+                    // Chuẩn bị kết quả để gửi tới Kafka
+                    const result = {
+                        uid: parsedValue.userId,
+                        tokens: tokens
+                    };
+
+                    // Gửi dữ liệu tới Kafka
+                    producer.send([{ topic: outTopics[1], messages: JSON.stringify(result) }], (err, res) => {
+                        if (err) {
+                            console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outTopics[2]}:`, err);
+                        } else {
+                            console.log(`Dữ liệu đã được gửi thành công tới ${outTopics[2]}:`, res);
+                        }
+                    });
+                }
+                break;
+
             default:
                 console.log('Không có hành động cho topic này:', message.topic);
         }
 
-        if (result) {
-            const outputTopic = outTopics[inTopics.indexOf(message.topic)];
-            producer.send([{ topic: outputTopic, messages: JSON.stringify(result) }], (err, res) => {
-                if (err) {
-                    console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outputTopic}:`, err);
-                } else {
-                    console.log(`Dữ liệu đã được gửi thành công tới ${outputTopic}:`, res);
-                }
-            });
-        }
     } catch (error) {
         console.error(`Lỗi xử lý message từ topic ${message.topic}:`, error);
     }
