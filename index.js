@@ -33,6 +33,8 @@ consumer.on('message', async (message) => {
 
             case inTopics[1]:
                 if (parsedValue.keywords && parsedValue.from && parsedValue.to && parsedValue.jobId) {
+
+                    // ---Kết quả tìm kiếm---
                     const result = await search(parsedValue);  // Gọi hàm xử lý B
                     if (result)
                         producer.send([{ topic: outTopics[0], messages: JSON.stringify(result) }], (err, res) => {
@@ -42,6 +44,37 @@ consumer.on('message', async (message) => {
                                 console.log(`Dữ liệu đã được gửi thành công tới ${outputTopic}:`, res);
                             }
                         });
+
+                    // ---Logs user---
+                    // Thêm timestamp
+                    parsedValue.timeStamp = Date.now();
+
+                    // Lưu parsedValue vào Elasticsearch
+                    await saveToES([
+                        {
+                            keywords: parsedValue.keywords,
+                            uid: parsedValue.uid,
+                            timeStamp: parsedValue.timeStamp
+                        }
+                    ], 'stock-logs-index');
+
+                    // Tokenize keywords
+                    const tokens = await tokenize(parsedValue.keywords);
+
+                    // Chuẩn bị kết quả để gửi tới Kafka
+                    const logs = {
+                        uid: parsedValue.userId,
+                        tokens: tokens
+                    };
+
+                    // Gửi dữ liệu tới Kafka
+                    producer.send([{ topic: outTopics[2], messages: JSON.stringify(logs) }], (err, res) => {
+                        if (err) {
+                            console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outTopics[2]}:`, err);
+                        } else {
+                            console.log(`Dữ liệu đã được gửi thành công tới ${outTopics[2]}:`, res);
+                        }
+                    });
                 }
                 break;
 
@@ -66,29 +99,7 @@ consumer.on('message', async (message) => {
 
             case inTopics[3]:
                 if (parsedValue) {
-                    // Thêm timestamp
-                    parsedValue.timeStamp = Date.now();
-
-                    // Lưu parsedValue vào Elasticsearch
-                    await saveToES([parsedValue], 'stock-logs-index');
-
-                    // Tokenize keywords
-                    const tokens = await tokenize(parsedValue.keywords);
-
-                    // Chuẩn bị kết quả để gửi tới Kafka
-                    const result = {
-                        uid: parsedValue.userId,
-                        tokens: tokens
-                    };
-
-                    // Gửi dữ liệu tới Kafka
-                    producer.send([{ topic: outTopics[1], messages: JSON.stringify(result) }], (err, res) => {
-                        if (err) {
-                            console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outTopics[2]}:`, err);
-                        } else {
-                            console.log(`Dữ liệu đã được gửi thành công tới ${outTopics[2]}:`, res);
-                        }
-                    });
+                    await saveToES(parsedValue, 'prefrence-index');
                 }
                 break;
 
