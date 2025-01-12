@@ -1,5 +1,10 @@
 const { Client } = require('@elastic/elasticsearch');
+const { KafkaClient, Producer } = require('kafka-node');
 require('dotenv').config();
+
+// Cấu hình Kafka
+const kafkaClient = new KafkaClient({ kafkaHost: process.env.KAFKA_HOST });
+const producer = new Producer(kafkaClient);
 
 // Cấu hình Elasticsearch
 const elasticsearchClient = new Client({ node: process.env.ES_URL });
@@ -20,18 +25,22 @@ const getPersonalData = async (parsedValue) => {
                     }
                 },
                 sort: [
-                    { timestamp: { order: 'desc' } } // Sắp xếp timestamp giảm dần
+                    { timeStamp: { order: 'desc' } } // Sắp xếp timestamp giảm dần
                 ],
                 size: 50 // Giới hạn kết quả trả về là 50
             }
         });
 
         // Trích xuất dữ liệu từ kết quả trả về
+        console.log('hits', result.hits.hits)
+        if (result.hits.hits.length === 0) {
+            parsedValue.result = [];
+            return parsedValue;
+        }
         const hits = result.hits.hits.map(hit => hit._source);
-
         // Đếm số lần xuất hiện của mỗi keyword
         const keywordCount = hits.reduce((acc, item) => {
-            const keyword = item.keyword;
+            const keyword = item.keywords;
             if (keyword) {
                 acc[keyword] = (acc[keyword] || 0) + 1;
             }

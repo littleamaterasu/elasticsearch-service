@@ -17,14 +17,16 @@ const saveToES = async (data, indexName) => {
     }
 
     try {
-        const body = data.flatMap(doc => [{ index: { _index: indexName } }, doc]);
+        const bulkPayload = [];
 
-        const { body: bulkResponse } = await elasticsearchClient.helpers.bulk({
-            datasource: body,
-            onDocument: (doc) => doc, // Chỉ cần ánh xạ doc ở đây nếu cần.
+        data.forEach((doc) => {
+
+            bulkPayload.push({ index: { _index: indexName } });
+            bulkPayload.push(doc);
         });
 
-        console.log(`Successfully indexed ${bulkResponse.items.length} items to ${indexName}.`);
+        await elasticsearchClient.bulk({ body: bulkPayload });
+
     } catch (error) {
         console.error('Error saving to Elasticsearch:', error);
     }
@@ -57,10 +59,11 @@ const tokenize = async (text, index, analyzer) => {
             analyzeParams.analyzer = analyzer;
         }
 
-        const { body } = await elasticsearchClient.indices.analyze(analyzeParams);
+        const res = await elasticsearchClient.indices.analyze(analyzeParams);
+        const tokens = res.tokens.map(token => token.token);
 
-        console.log('Tokens:', body.tokens.map(token => token.token));
-        return body.tokens.map(token => token.token);
+        console.log(tokens.slice(0, 2));
+        return tokens;
     } catch (error) {
         console.error('Error analyzing text:', error);
     }

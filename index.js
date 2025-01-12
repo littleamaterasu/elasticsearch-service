@@ -6,10 +6,16 @@ const { saveToES, tokenize } = require('./service/elasticsearchClient');
 const kafkaClient = new KafkaClient({ kafkaHost: process.env.KAFKA_HOST });
 const producer = new Producer(kafkaClient);
 
-const inTopics = ['personal-data', 'search', 'crawled-data', 'classification'];
+const inTopics = ['preference', 'search', 'crawled-data', 'classification'];
 const outTopics = ['api-res', 'query', 'training-data'];
 
-const consumer = new Consumer(kafkaClient, inTopics.map(topic => ({ topic, partition: 0 })), { autoCommit: true });
+const consumer = new Consumer(
+    kafkaClient,
+    inTopics.map(topic => ({ topic, partition: 0 })),
+    {
+        autoCommit: true, // Vô hiệu hóa auto commit offset
+    }
+);
 
 consumer.on('message', async (message) => {
     console.log(`Nhận message từ topic ${message.topic}`);
@@ -23,25 +29,25 @@ consumer.on('message', async (message) => {
                     if (result)
                         producer.send([{ topic: outTopics[0], messages: JSON.stringify(result) }], (err, res) => {
                             if (err) {
-                                console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outputTopic}:`, err);
+                                console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outTopics[0]}:`, err);
                             } else {
-                                console.log(`Dữ liệu đã được gửi thành công tới ${outputTopic}:`, res);
+                                console.log(`Dữ liệu đã được gửi thành công tới ${outTopics[0]}:`, res);
                             }
                         });
                 }
                 break;
 
             case inTopics[1]:
-                if (parsedValue.keywords && parsedValue.from && parsedValue.to && parsedValue.jobId) {
+                if (parsedValue.keywords && parsedValue.from && parsedValue.to && parsedValue.jobId && parsedValue.uid) {
 
                     // ---Kết quả tìm kiếm---
                     const result = await search(parsedValue);  // Gọi hàm xử lý B
                     if (result)
                         producer.send([{ topic: outTopics[0], messages: JSON.stringify(result) }], (err, res) => {
                             if (err) {
-                                console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outputTopic}:`, err);
+                                console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outTopics[0]}:`, err);
                             } else {
-                                console.log(`Dữ liệu đã được gửi thành công tới ${outputTopic}:`, res);
+                                console.log(`Dữ liệu đã được gửi thành công tới ${outTopics[0]}:`, res);
                             }
                         });
 
@@ -59,16 +65,37 @@ consumer.on('message', async (message) => {
                     ], 'stock-logs-index');
 
                     // Tokenize keywords
-                    const tokens = await tokenize(parsedValue.keywords);
+                    const tokens = await tokenize(parsedValue.keywords, 'prj3', 'my_vi_analyzer');
 
                     // Chuẩn bị kết quả để gửi tới Kafka
                     const logs = {
-                        uid: parsedValue.userId,
+                        uid: parsedValue.uid,
                         tokens: tokens
                     };
 
+                    console.log(logs);
+
                     // Gửi dữ liệu tới Kafka
-                    producer.send([{ topic: outTopics[2], messages: JSON.stringify(logs) }], (err, res) => {
+                    producer.send([{ topic: outTopics[1], messages: JSON.stringify(logs) }], (err, res) => {
+                        if (err) {
+                            console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outTopics[1]}:`, err);
+                        } else {
+                            console.log(`Dữ liệu đã được gửi thành công tới ${outTopics[1]}:`, res);
+                        }
+                    });
+                }
+                break;
+
+            case inTopics[2]:
+                if (parsedValue) {
+                    console.log('keywords', parsedValue.keywords)
+                    await saveToES([parsedValue], 'prj3');
+                    const tokens = await tokenize(parsedValue.title + ', ' + parsedValue.keywords.join(', ') + ', ' + parsedValue.description + ', ' + parsedValue.content, 'prj3', 'my_vi_analyzer');
+                    const result = {
+                        tokens: tokens,
+                        keywords: parsedValue.keywords
+                    }
+                    producer.send([{ topic: outTopics[2], messages: JSON.stringify(result) }], (err, res) => {
                         if (err) {
                             console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outTopics[2]}:`, err);
                         } else {
@@ -78,28 +105,15 @@ consumer.on('message', async (message) => {
                 }
                 break;
 
-            case inTopics[2]:
-                if (parsedValue) {
-                    await saveToES([parsedValue], 'crawled-stock-index');
-                    const tokens = tokenize(parsedValue.title + ', ' + parsedValue.keywords + ', ' + parsedValue.description + ', ' + parsedValue.content);
-                    const keywords = parsedValue.keywords.split(', ');
-                    const result = {
-                        tokens: tokens,
-                        keywords: keywords
-                    }
-                    producer.send([{ topic: outTopics[2], messages: JSON.stringify(result) }], (err, res) => {
-                        if (err) {
-                            console.error(`Lỗi gửi dữ liệu tới Kafka topic ${outputTopic}:`, err);
-                        } else {
-                            console.log(`Dữ liệu đã được gửi thành công tới ${outputTopic}:`, res);
-                        }
-                    });
-                }
-                break;
-
             case inTopics[3]:
                 if (parsedValue) {
-                    await saveToES(parsedValue, 'prefrence-index');
+                    const classes = parsedValue.topIndex.map(classItem => ({
+                        uid: parsedValue.uid,
+                        keywords: classItem,
+                        timeStamp: parsedValue.timestamp
+                    }));
+                    console.log('classification logs', classes)
+                    await saveToES(classes, 'personal-data');
                 }
                 break;
 

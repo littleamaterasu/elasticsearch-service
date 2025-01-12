@@ -37,17 +37,6 @@ const search = async (parsedValue) => {
         // Trích xuất dữ liệu từ kết quả trả về
         const hits = result.hits.hits.map(hit => hit._source);
 
-        // Gửi dữ liệu đến Kafka
-        for (const data of hits) {
-            producer.send(
-                [{ topic: kafkaTopic, messages: JSON.stringify(data) }],
-                (err, data) => {
-                    if (err) console.error('Kafka Error:', err);
-                    else console.log('Data sent to Kafka:', data);
-                }
-            );
-        }
-
         parsedValue.result = hits;
         return parsedValue; // Trả về kết quả cho người gọi
     } catch (error) {
