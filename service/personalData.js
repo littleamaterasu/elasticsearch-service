@@ -1,13 +1,8 @@
 const { Client } = require('@elastic/elasticsearch');
-const { KafkaClient, Producer } = require('kafka-node');
 require('dotenv').config();
 
-// Cấu hình Kafka
-const kafkaClient = new KafkaClient({ kafkaHost: process.env.KAFKA_HOST });
-const producer = new Producer(kafkaClient);
-
 // Cấu hình Elasticsearch
-const elasticsearchClient = new Client({ node: process.env.ES_URL });
+const elasticsearchClient = new Client({ node: `http://${process.env.ES_URL}` });
 const personalDataIndex = 'personal-data';
 const stockDataIndex = 'crawled-stock-data';
 

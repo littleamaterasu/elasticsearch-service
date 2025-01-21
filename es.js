@@ -2,12 +2,15 @@ const { KafkaClient, Consumer, Producer } = require('kafka-node');
 const { getPersonalData } = require('./service/personalData');
 const { search } = require('./service/search');
 const { saveToES, tokenize } = require('./service/elasticsearchClient');
+require('dotenv').config();
 
 const kafkaClient = new KafkaClient({ kafkaHost: process.env.KAFKA_HOST });
 const producer = new Producer(kafkaClient);
 
 const inTopics = ['preference', 'search', 'crawled-data', 'classification'];
 const outTopics = ['api-res', 'query', 'training-data'];
+
+console.log('elastic search', 'es url', process.env.ES_URL, 'kafka broker', process.env.KAFKA_HOST)
 
 const consumer = new Consumer(
     kafkaClient,

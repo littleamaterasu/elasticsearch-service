@@ -2,7 +2,7 @@ const { Client } = require('@elastic/elasticsearch');
 require('dotenv').config();
 
 // Cấu hình Elasticsearch
-const elasticsearchClient = new Client({ node: process.env.ES_URL });
+const elasticsearchClient = new Client({ node: `http://${process.env.ES_URL}` });
 
 /**
  * Lưu dữ liệu vào Elasticsearch sử dụng helpers.bulk.
